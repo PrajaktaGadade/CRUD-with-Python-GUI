@@ -1,0 +1,170 @@
+import tkinter as tk
+from tkinter import messagebox
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+
+# MongoDB Connection
+try:
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["inventory_database"]
+    collection = db["products"]
+except Exception as e:
+    messagebox.showerror("Connection Error", f"Could not connect to MongoDB: {e}")
+    exit()
+
+class InventoryApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("MongoDB Product Inventory System")
+        self.root.geometry("700x500")
+
+        self.create_widgets()
+        self.read_data()
+
+    def create_widgets(self):
+        # Frame for input fields
+        input_frame = tk.Frame(self.root)
+        input_frame.pack(pady=10)
+
+        # Labels and Entry fields
+        tk.Label(input_frame, text="Product Name:").grid(row=0, column=0, padx=5, pady=5)
+        self.name_entry = tk.Entry(input_frame, width=30)
+        self.name_entry.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(input_frame, text="Quantity:").grid(row=1, column=0, padx=5, pady=5)
+        self.quantity_entry = tk.Entry(input_frame, width=30)
+        self.quantity_entry.grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(input_frame, text="Price:").grid(row=2, column=0, padx=5, pady=5)
+        self.price_entry = tk.Entry(input_frame, width=30)
+        self.price_entry.grid(row=2, column=1, padx=5, pady=5)
+
+        # Frame for buttons
+        button_frame = tk.Frame(self.root)
+        button_frame.pack(pady=10)
+
+        # CRUD Buttons
+        tk.Button(button_frame, text="Add Product", command=self.create_product).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Update Product", command=self.update_product).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Delete Product", command=self.delete_product).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Clear Fields", command=self.clear_fields).pack(side=tk.LEFT, padx=5)
+
+        # Listbox to display products
+        self.listbox_frame = tk.Frame(self.root)
+        self.listbox_frame.pack(pady=10, fill=tk.BOTH, expand=True)
+
+        self.product_listbox = tk.Listbox(self.listbox_frame, height=15)
+        self.product_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        scrollbar = tk.Scrollbar(self.listbox_frame, orient=tk.VERTICAL)
+        scrollbar.config(command=self.product_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.product_listbox.config(yscrollcommand=scrollbar.set)
+        self.product_listbox.bind("<<ListboxSelect>>", self.on_select)
+
+    def read_data(self):
+        self.product_listbox.delete(0, tk.END)
+        for product in collection.find():
+            self.product_listbox.insert(tk.END, f"{product['_id']}: {product['name']} - Quantity: {product['quantity']} - Price: ${product['price']:.2f}")
+
+    def create_product(self):
+        name = self.name_entry.get()
+        quantity = self.quantity_entry.get()
+        price = self.price_entry.get()
+
+        if not name or not quantity or not price:
+            messagebox.showwarning("Input Error", "All fields are required.")
+            return
+
+        try:
+            quantity = int(quantity)
+            price = float(price)
+            if quantity < 0 or price < 0:
+                messagebox.showerror("Input Error", "Quantity and Price must be non-negative.")
+                return
+
+            product_data = {"name": name, "quantity": quantity, "price": price}
+            collection.insert_one(product_data)
+            messagebox.showinfo("Success", "Product added successfully!")
+            self.clear_fields()
+            self.read_data()
+        except ValueError:
+            messagebox.showerror("Input Error", "Quantity must be an integer and Price must be a number.")
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def update_product(self):
+        selected_item = self.product_listbox.curselection()
+        if not selected_item:
+            messagebox.showwarning("Selection Error", "Please select a product to update.")
+            return
+
+        selected_id_str = self.product_listbox.get(selected_item[0]).split(":")[0]
+        product_id = ObjectId(selected_id_str)
+
+        name = self.name_entry.get()
+        quantity = self.quantity_entry.get()
+        price = self.price_entry.get()
+
+        if not name or not quantity or not price:
+            messagebox.showwarning("Input Error", "All fields are required for update.")
+            return
+
+        try:
+            quantity = int(quantity)
+            price = float(price)
+            if quantity < 0 or price < 0:
+                messagebox.showerror("Input Error", "Quantity and Price must be non-negative.")
+                return
+
+            collection.update_one({"_id": product_id}, {"$set": {"name": name, "quantity": quantity, "price": price}})
+            messagebox.showinfo("Success", "Product updated successfully!")
+            self.clear_fields()
+            self.read_data()
+        except ValueError:
+            messagebox.showerror("Input Error", "Quantity must be an integer and Price must be a number.")
+        except Exception as e:
+            messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def delete_product(self):
+        selected_item = self.product_listbox.curselection()
+        if not selected_item:
+            messagebox.showwarning("Selection Error", "Please select a product to delete.")
+            return
+
+        selected_id_str = self.product_listbox.get(selected_item[0]).split(":")[0]
+        product_id = ObjectId(selected_id_str)
+
+        if messagebox.askyesno("Confirm Deletion", "Are you sure you want to delete this product?"):
+            try:
+                collection.delete_one({"_id": product_id})
+                messagebox.showinfo("Success", "Product deleted successfully!")
+                self.clear_fields()
+                self.read_data()
+            except Exception as e:
+                messagebox.showerror("Database Error", f"An error occurred: {e}")
+
+    def on_select(self, event):
+        selected_item = self.product_listbox.curselection()
+        if selected_item:
+            selected_id_str = self.product_listbox.get(selected_item[0]).split(":")[0]
+            product_id = ObjectId(selected_id_str)
+            product = collection.find_one({"_id": product_id})
+            if product:
+                self.name_entry.delete(0, tk.END)
+                self.name_entry.insert(0, product['name'])
+                self.quantity_entry.delete(0, tk.END)
+                self.quantity_entry.insert(0, str(product['quantity']))
+                self.price_entry.delete(0, tk.END)
+                self.price_entry.insert(0, str(product['price']))
+
+    def clear_fields(self):
+        self.name_entry.delete(0, tk.END)
+        self.quantity_entry.delete(0, tk.END)
+        self.price_entry.delete(0, tk.END)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = InventoryApp(root)
+    root.mainloop()
